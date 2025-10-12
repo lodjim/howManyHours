@@ -1,6 +1,6 @@
 module howManyHours
 
-go 1.24.3
+go 1.23
 
 require (
 	github.com/go-audio/audio v1.0.0 // indirect
