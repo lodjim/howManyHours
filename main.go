@@ -110,12 +110,20 @@ func main() {
 		".m4a":  true,
 	}
 
-	fmt.Printf("Scanning directory: %s\n", folderPath)
+	// Resolve symlink if needed
+	resolvedPath, err := filepath.EvalSymlinks(folderPath)
+	if err != nil {
+		fmt.Printf("Error resolving path: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Scanning directory: %s\n", resolvedPath)
 
 	// Collect audio files
 	var audioFiles []string
-	err := filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(resolvedPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			fmt.Printf("Warning: skipping %s: %v\n", path, err)
 			return nil // Skip files we can't read
 		}
 		if !info.IsDir() {
