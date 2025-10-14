@@ -163,7 +163,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	// Start workers
-	for range numWorkers {
+	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go worker(jobs, results, &wg, bar)
 	}
