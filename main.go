@@ -35,6 +35,8 @@ func getAudioDuration(filePath string) (float64, error) {
 		return getMP3Duration(filePath)
 	case ".wav":
 		return getWAVDuration(filePath)
+	case ".m4a":
+		return getM4ADuration(filePath)
 	default:
 		return 0, fmt.Errorf("unsupported format: %s", ext)
 	}
@@ -80,6 +82,90 @@ func getWAVDuration(filePath string) (float64, error) {
 		return 0, err
 	}
 	return duration.Seconds(), nil
+}
+
+func getM4ADuration(filePath string) (float64, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	// Read file info to get size
+	info, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+
+	// Parse M4A/MP4 atoms to find duration
+	// M4A files use MP4 container format with atoms/boxes
+	buf := make([]byte, 8)
+	var duration float64
+	var timeScale uint32
+
+	for {
+		_, err := file.Read(buf)
+		if err != nil {
+			break
+		}
+
+		// Read atom size and type
+		size := uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3])
+		atomType := string(buf[4:8])
+
+		if size == 0 {
+			break
+		}
+
+		// Look for 'mvhd' (movie header) atom which contains duration
+		if atomType == "mvhd" {
+			headerBuf := make([]byte, size-8)
+			_, err := file.Read(headerBuf)
+			if err != nil {
+				break
+			}
+
+			// Parse mvhd atom
+			version := headerBuf[0]
+			if version == 0 {
+				// Version 0: 32-bit values
+				timeScale = uint32(headerBuf[12])<<24 | uint32(headerBuf[13])<<16 | uint32(headerBuf[14])<<8 | uint32(headerBuf[15])
+				durationUnits := uint32(headerBuf[16])<<24 | uint32(headerBuf[17])<<16 | uint32(headerBuf[18])<<8 | uint32(headerBuf[19])
+				if timeScale > 0 {
+					duration = float64(durationUnits) / float64(timeScale)
+				}
+			} else if version == 1 {
+				// Version 1: 64-bit values
+				timeScale = uint32(headerBuf[20])<<24 | uint32(headerBuf[21])<<16 | uint32(headerBuf[22])<<8 | uint32(headerBuf[23])
+				durationUnits := uint64(headerBuf[24])<<56 | uint64(headerBuf[25])<<48 | uint64(headerBuf[26])<<40 | uint64(headerBuf[27])<<32 |
+					uint64(headerBuf[28])<<24 | uint64(headerBuf[29])<<16 | uint64(headerBuf[30])<<8 | uint64(headerBuf[31])
+				if timeScale > 0 {
+					duration = float64(durationUnits) / float64(timeScale)
+				}
+			}
+			break
+		}
+
+		// Skip to next atom
+		if size > 8 {
+			_, err = file.Seek(int64(size-8), 1)
+			if err != nil {
+				break
+			}
+		}
+
+		// Safety check to prevent infinite loops
+		currentPos, _ := file.Seek(0, 1)
+		if currentPos >= info.Size() {
+			break
+		}
+	}
+
+	if duration == 0 {
+		return 0, fmt.Errorf("could not parse M4A duration")
+	}
+
+	return duration, nil
 }
 
 func worker(jobs <-chan fileJob, results chan<- result, wg *sync.WaitGroup, progress *progressbar.ProgressBar) {
